@@ -1,53 +1,29 @@
 import { definePluginApp } from "@get-bb/plugin-sdk/app";
-import { FileExplorerHeaderAction } from "@/components/FileExplorerHeaderAction";
-import { GlobalFileExplorerRail } from "@/components/GlobalFileExplorerRail";
-import { NewThreadFileExplorerAction } from "@/components/NewThreadFileExplorerAction";
+import { FileExplorerPanelTab } from "@/components/FileExplorerPanelTab";
 import { ChatDraftBridge } from "@/components/ChatDraftBridge";
-import { requestSearchFocus } from "@/lib/search-focus-bus";
-import { toggleRailOpen, writeStoredOpen } from "@/lib/rail-state";
 
+// File Explorer opens as a tab in BB's right panel (the panel's + launcher),
+// not as a pinned overlay rail.
 export default definePluginApp((app) => {
-  app.slots.experimental_appOverlay({ id: "global-file-explorer", component: GlobalFileExplorerRail });
-
-  app.slots.experimental_threadHeaderAction({
-    id: "file-explorer-toggle",
-    title: "File Explorer",
-    component: ({ threadId }) => <FileExplorerHeaderAction threadId={threadId} />,
-  });
-
-  app.slots.sidebarFooterAction({
-    id: "file-explorer-toggle",
+  app.slots.threadPanelAction({
+    id: "file-explorer",
     title: "File Explorer",
     icon: "FileText",
-    run: toggleRailOpen,
+    layout: "flush",
+    component: FileExplorerPanelTab,
   });
 
-  app.composer.customize({
-    id: "new-thread-file-explorer",
-    scopes: ["new-thread"],
-    actions: [{ id: "open-file-explorer", component: NewThreadFileExplorerAction }],
+  app.slots.experimental_newThreadPanelAction({
+    id: "file-explorer",
+    title: "File Explorer",
+    icon: "FileText",
+    layout: "flush",
+    component: FileExplorerPanelTab,
   });
 
   app.composer.customize({
     id: "file-explorer-chat-draft",
     scopes: ["thread", "queued-message", "side-chat", "new-thread"],
     banners: [{ id: "bridge", chrome: "bare", component: ChatDraftBridge }],
-  });
-
-  app.slots.commandPaletteAction({
-    id: "find-file-in-tree",
-    title: "File Explorer: find a file",
-    run: () => {
-      writeStoredOpen(true);
-      requestSearchFocus();
-    },
-  });
-
-  app.slots.commandPaletteAction({
-    id: "open-file-explorer",
-    title: "File Explorer: show pinned folder",
-    run: () => {
-      writeStoredOpen(true);
-    },
   });
 });
