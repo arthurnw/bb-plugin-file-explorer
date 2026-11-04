@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { useBbContext, useRpc, useSettings } from "@get-bb/plugin-sdk/app";
+import { useBbContext, useBbNavigate, useRpc, useSettings } from "@get-bb/plugin-sdk/app";
 import { Icon } from "@/components/ui/icon";
 import { FileExplorerPanel } from "@/components/FileExplorerPanel";
 import { FileContentSearchPanel } from "@/components/FileContentSearchPanel";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { cn } from "@/lib/utils";
+import { registerSurfaceNavigation } from "@/lib/surface-navigation";
 import { getFindInFolder, subscribeFindInFolder } from "@/lib/find-in-folder";
 import type { RootChoice } from "../shared";
 import type { rpcContract } from "../contract";
@@ -55,6 +56,11 @@ export function FileExplorerPanelTab() {
   const rpc = useRpc<typeof rpcContract>();
   const { threadId, projectId } = useBbContext();
   const { values } = useSettings();
+  const navigate = useBbNavigate();
+
+  // The panel is the only surface that opens previews now, so it registers
+  // the navigator the file rows look up by thread.
+  useEffect(() => registerSurfaceNavigation(threadId, navigate), [threadId, navigate]);
   const [selectedId, setSelectedId] = useState<string | null>(readPinnedRoot);
   const [choices, setChoices] = useState<RootChoice[]>([]);
   const [loadingRoots, setLoadingRoots] = useState(true);
