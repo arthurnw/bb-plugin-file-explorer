@@ -483,17 +483,43 @@ export function mountChatPathButtons(
     return node.querySelector(CHAT_MESSAGE_SELECTOR) !== null;
   };
 
+  /**
+   * Returns true when every added/removed node in the record is a button that
+   * this module itself manages. Such a mutation is caused by `ensureButton` or
+   * the abort cleanup, not by new chat content, so it must not re-trigger the
+   * sweep — otherwise each button insertion loops back into another scan, which
+   * loops back into another insertion, creating a feedback cycle that fires the
+   * sweep several times a second indefinitely.
+   */
+  const isSelfMutation = (record: MutationRecord): boolean => {
+    const changed = [
+      ...Array.from(record.addedNodes),
+      ...Array.from(record.removedNodes),
+    ];
+    return (
+      changed.length > 0 &&
+      changed.every(
+        (node) =>
+          node instanceof Element && node.hasAttribute(BUTTON_ATTR),
+      )
+    );
+  };
+
   const observer = new MutationObserver((records) => {
     // The tree, toasts, and the composer rewrite the document constantly.
     // Only a change inside a chat message, or a newly inserted message, can
     // add a path. Checking the mutation target's whole subtree would match
     // every body update, because the messages are already in the document.
+    //
+    // Self-mutations (button additions/removals by this module) are excluded:
+    // they are not new chat content and must not feed back into another sweep.
     const relevant = records.some(
       (record) =>
-        insideChat(record.target) ||
-        Array.from(record.addedNodes).some(
-          (node) => insideChat(node) || containsChat(node),
-        ),
+        !isSelfMutation(record) &&
+        (insideChat(record.target) ||
+          Array.from(record.addedNodes).some(
+            (node) => insideChat(node) || containsChat(node),
+          )),
     );
     if (relevant) queueSweep();
   });
