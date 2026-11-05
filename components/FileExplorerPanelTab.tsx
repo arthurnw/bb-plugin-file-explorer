@@ -200,6 +200,12 @@ export function FileExplorerPanelTab() {
   const settled = !loadingRoots && !loadingFolders;
   const stored = selectedId === null ? undefined : allChoices.find((choice) => choice.id === selectedId);
   const chosen = stored ?? (selectedId !== null && !settled ? undefined : defaultChoice);
+  // Clearing the stored choice returns the thread to its default, its own workspace.
+  const backToThreadFolder = () => {
+    setSelectedId(null);
+    updateThreadState(stateKey, { selectedId: null });
+  };
+  const showThreadFolderButton = threadId !== null && defaultChoice !== undefined && chosen?.id !== defaultChoice.id;
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-sidebar text-sidebar-foreground" aria-label="File Explorer">
@@ -218,6 +224,13 @@ export function FileExplorerPanelTab() {
           }))}
           triggerClassName="bg-sidebar"
         />
+        {showThreadFolderButton ? (
+          <button type="button" aria-label="Back to this thread's workspace" title="Back to this thread's workspace"
+            className="flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-state-hover"
+            onClick={backToThreadFolder}>
+            <Icon name="FolderGit" className="size-3" />
+          </button>
+        ) : null}
         <button type="button" aria-label="Refresh folder list" title="Refresh folder list"
           className="flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-state-hover"
           onClick={() => setRefreshCount((count) => count + 1)}>
