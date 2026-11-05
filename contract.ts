@@ -19,6 +19,14 @@ export const rpcContract = defineRpcContract({
     }).strict(),
     output: z.object({ choices: z.array(rootChoiceSchema) }),
   },
+  /** Open any folder on this computer as a tree root. */
+  openFolder: {
+    input: z.object({ path: z.string().trim().min(1).max(4096) }).strict(),
+    output: z.discriminatedUnion("ok", [
+      z.object({ ok: z.literal(true), choice: rootChoiceSchema }),
+      z.object({ ok: z.literal(false), message: z.string() }),
+    ]),
+  },
   resolveInRoot: {
     input: z.object({ rootId: z.string().min(1), path: z.string().trim().min(1).max(4096) }).strict(),
     output: revealResultSchema,

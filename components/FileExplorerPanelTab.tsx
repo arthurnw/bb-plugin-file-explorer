@@ -3,6 +3,7 @@ import { useBbContext, useBbNavigate, useRpc, useSettings } from "@get-bb/plugin
 import { Icon } from "@/components/ui/icon";
 import { FileExplorerPanel } from "@/components/FileExplorerPanel";
 import { FileContentSearchPanel } from "@/components/FileContentSearchPanel";
+import { Input } from "@/components/ui/input";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { cn } from "@/lib/utils";
 import { registerSurfaceNavigation } from "@/lib/surface-navigation";
@@ -35,7 +36,7 @@ function writeStoredTab(tab: ExplorerTab): void {
 function readPinnedRoot(): string | null {
   try {
     const value = localStorage.getItem(ROOT_STORAGE_KEY);
-    return value !== null && /^(?:thread|source|personal):[\w-]{1,128}$/u.test(value)
+    return value !== null && /^(?:thread|source|personal|folder):[\w-]{1,128}$/u.test(value)
       ? value
       : null;
   } catch {
@@ -48,6 +49,28 @@ function writePinnedRoot(id: string): void {
     localStorage.setItem(ROOT_STORAGE_KEY, id);
   } catch {
     // The choice still lasts for this window when storage is unavailable.
+  }
+}
+
+const FOLDERS_STORAGE_KEY = "bb-plugin-file-explorer:opened-folders";
+const MAX_OPENED_FOLDERS = 10;
+
+function readOpenedFolders(): string[] {
+  try {
+    const parsed: unknown = JSON.parse(localStorage.getItem(FOLDERS_STORAGE_KEY) ?? "[]");
+    return Array.isArray(parsed)
+      ? parsed.filter((item): item is string => typeof item === "string").slice(0, MAX_OPENED_FOLDERS)
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeOpenedFolders(paths: string[]): void {
+  try {
+    localStorage.setItem(FOLDERS_STORAGE_KEY, JSON.stringify(paths));
+  } catch {
+    // The folders still last for this window when storage is unavailable.
   }
 }
 
@@ -66,6 +89,9 @@ export function FileExplorerPanelTab() {
   const [loadingRoots, setLoadingRoots] = useState(true);
   const [rootError, setRootError] = useState<string | null>(null);
   const [refreshCount, setRefreshCount] = useState(0);
+  const [openedChoices, setOpenedChoices] = useState<RootChoice[]>([]);
+  const [folderInput, setFolderInput] = useState("");
+  const [folderError, setFolderError] = useState<string | null>(null);
   const [tab, setTab] = useState<ExplorerTab>(readStoredTab);
 
   // A right-clicked "Find in Folder" opens the tab that answers it. The panel
@@ -76,6 +102,43 @@ export function FileExplorerPanelTab() {
     setTab("search");
     writeStoredTab("search");
   }, [findInFolder]);
+
+  // Folders opened by path are remembered by path; the server mints fresh
+  // root ids for them on each load, and a folder that no longer exists drops out.
+  useEffect(() => {
+    let cancelled = false;
+    void Promise.all(readOpenedFolders().map((path) => rpc.call("openFolder", { path })))
+      .then((results) => {
+        if (cancelled) return;
+        setOpenedChoices(results.flatMap((result) => (result.ok ? [result.choice] : [])));
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [rpc, refreshCount]);
+
+  const openFolderByPath = (path: string) => {
+    setFolderError(null);
+    void rpc.call("openFolder", { path })
+      .then((result) => {
+        if (!result.ok) {
+          setFolderError(result.message);
+          return;
+        }
+        const { choice } = result;
+        setOpenedChoices((current) => [
+          choice,
+          ...current.filter((existing) => existing.id !== choice.id),
+        ].slice(0, MAX_OPENED_FOLDERS));
+        writeOpenedFolders([
+          choice.workspace.rootPath,
+          ...readOpenedFolders().filter((existing) => existing !== choice.workspace.rootPath),
+        ].slice(0, MAX_OPENED_FOLDERS));
+        setSelectedId(choice.id);
+        writePinnedRoot(choice.id);
+        setFolderInput("");
+      })
+      .catch((cause) => setFolderError(cause instanceof Error ? cause.message : String(cause)));
+  };
 
   const pinnedThreadId = selectedId?.startsWith("thread:") ? selectedId.slice(7) : null;
   /** The thread the selector last followed, so a manual choice survives re-renders. */
@@ -125,7 +188,8 @@ export function FileExplorerPanelTab() {
     return () => { cancelled = true; };
   }, [rpc, threadId, projectId, pinnedThreadId, selectedId, refreshCount, values?.treeRoot]);
 
-  const chosen = choices.find((choice) => choice.id === selectedId);
+  const allChoices = [...choices, ...openedChoices];
+  const chosen = allChoices.find((choice) => choice.id === selectedId);
   return (
     <div className="flex h-full min-h-0 flex-col bg-sidebar text-sidebar-foreground" aria-label="File Explorer">
       <div className="flex shrink-0 items-center gap-1 border-b border-sidebar-border px-1.5 py-1">
@@ -139,7 +203,7 @@ export function FileExplorerPanelTab() {
           }}
           placeholder="Choose a folder"
           searchPlaceholder="Search projects…"
-          options={choices.map((choice) => ({
+          options={allChoices.map((choice) => ({
             value: choice.id,
             label: choice.label,
           }))}
@@ -150,6 +214,23 @@ export function FileExplorerPanelTab() {
           onClick={() => setRefreshCount((count) => count + 1)}>
           <Icon name="RotateCcw" className="size-3" />
         </button>
+      </div>
+      <div className="shrink-0 border-b border-sidebar-border px-1.5 py-1">
+        <Input
+          aria-label="Open folder by path"
+          title="Open any folder on this computer by path, then press Enter"
+          placeholder="Open folder path… (e.g. ~/.local/share)"
+          value={folderInput}
+          className="h-6 px-2 text-[11px]"
+          onChange={(event) => {
+            setFolderInput(event.target.value);
+            setFolderError(null);
+          }}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" && folderInput.trim() !== "") openFolderByPath(folderInput);
+          }}
+        />
+        {folderError !== null ? <p className="pt-1 text-[11px] text-destructive">{folderError}</p> : null}
       </div>
       <div
         role="tablist"

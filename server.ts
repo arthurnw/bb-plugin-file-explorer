@@ -7,6 +7,7 @@ import { createFolder } from "./src/create-folder";
 import { deleteEntry } from "./src/delete-entry";
 import { renameEntry } from "./src/rename-entry";
 import { copyTextToClipboard, revealInExplorer } from "./src/os-actions";
+import { openFolder } from "./src/open-folder";
 import { resolveRoot } from "./src/roots";
 import { invalidateListings, listDir } from "./src/listing";
 import {
@@ -127,6 +128,12 @@ export default async function plugin(bb: BbPluginApi): Promise<void> {
     listRootChoices: async (input) => ({
       choices: await listRootChoices(bb, input, await getTreeRoot()),
     }),
+    openFolder: async ({ path }) => {
+      const { primaryHostId } = await bb.sdk.system.config();
+      if (primaryHostId === null) return { ok: false as const, message: "No primary computer is configured." };
+      return openFolder(primaryHostId, path, (hostId, absolutePath) =>
+        host.call("statPath", { rootPath: absolutePath, relativePath: "" }, { hostId }));
+    },
     resolveInRoot: async (input) =>
       resolveInRoot(bb, input, getSearchRoots, probe, await getIgnoredDirs()),
     searchFilesInRoot: async (input) =>
