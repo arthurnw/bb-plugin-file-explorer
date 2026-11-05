@@ -9,10 +9,13 @@ import type { Workspace } from "../shared";
 
 export function FileExplorerPanel({
   root,
+  viewKey,
 }: {
   root: Workspace | null;
+  /** Identifies the thread, so each keeps its own expanded folders. */
+  viewKey: string;
 }) {
-  const tree = useWorkspaceTree(root);
+  const tree = useWorkspaceTree(root, viewKey);
   const search = useFileSearch(tree);
   return (
     <div className="flex h-full min-h-0 flex-col bg-sidebar text-sidebar-foreground">

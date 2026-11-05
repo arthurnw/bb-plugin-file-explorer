@@ -1,3 +1,4 @@
+import { readTreeView, treeViewKey, writeTreeView } from "@/lib/tree-view-state";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRpc, useSettings } from "@get-bb/plugin-sdk/app";
 import { toast } from "sonner";
@@ -28,7 +29,7 @@ type DirState =
   | { status: "error"; message: string };
 
 /** Tree state belongs to the pinned navigator root, not the current route. */
-export function useWorkspaceTree(root: Workspace | null) {
+export function useWorkspaceTree(root: Workspace | null, viewKey: string) {
   const rpc = useRpc<typeof rpcContract>();
   const { values, isLoading: settingsLoading } = useSettings();
   const showSkipped = values?.showSkipped === true;
@@ -42,17 +43,26 @@ export function useWorkspaceTree(root: Workspace | null) {
   const [dirs, setDirs] = useState<Record<string, DirState>>({});
   const dirsRef = useRef(dirs);
   dirsRef.current = dirs;
-  const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set([""]));
-  const [selected, setSelected] = useState<string | null>(null);
+  const cacheKey = root === null ? "" : treeViewKey(viewKey, root.hostId, root.rootPath);
+  const [expanded, setExpanded] = useState<ReadonlySet<string>>(
+    () => new Set(readTreeView(cacheKey).expanded),
+  );
+  const [selected, setSelected] = useState<string | null>(() => readTreeView(cacheKey).selected);
   const [visibleReveal, setVisibleReveal] = useState<VisibleReveal | null>(null);
 
-  const pinnedKey = root === null ? "" : `${root.hostId}\n${root.rootPath}`;
-  useEffect(() => {
+  // A different thread or root restores what that thread last had open here.
+  const [ownerKey, setOwnerKey] = useState(cacheKey);
+  if (ownerKey !== cacheKey) {
+    const restored = readTreeView(cacheKey);
+    setOwnerKey(cacheKey);
     setRerooted(null);
-    setExpanded(new Set([""]));
-    setSelected(null);
+    setExpanded(new Set(restored.expanded));
+    setSelected(restored.selected);
     setVisibleReveal(null);
-  }, [pinnedKey]);
+  }
+  useEffect(() => {
+    if (ownerKey !== "") writeTreeView(ownerKey, { expanded: [...expanded], selected });
+  }, [ownerKey, expanded, selected]);
 
   const active = rerooted ?? root;
   const activeRef = useRef(active);

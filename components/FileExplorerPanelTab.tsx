@@ -276,7 +276,7 @@ export function FileExplorerPanelTab() {
       {rootError !== null ? <p className="px-2 py-2 text-[11px] text-destructive">{rootError}</p> : null}
       {loadingRoots && choices.length === 0 ? <p className="px-2 py-2 text-[11px] text-muted-foreground">Loading folders…</p> : null}
       {tab === "files" ? (
-        <FileExplorerPanel root={chosen?.workspace ?? null} />
+        <FileExplorerPanel root={chosen?.workspace ?? null} viewKey={stateKey} />
       ) : (
         <FileContentSearchPanel root={chosen?.workspace ?? null} />
       )}
