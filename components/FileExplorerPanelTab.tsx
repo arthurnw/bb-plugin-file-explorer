@@ -205,7 +205,8 @@ export function FileExplorerPanelTab() {
     setSelectedId(null);
     updateThreadState(stateKey, { selectedId: null });
   };
-  const showThreadFolderButton = threadId !== null && defaultChoice !== undefined && chosen?.id !== defaultChoice.id;
+  const showThreadFolderButton = threadId !== null && defaultChoice !== undefined;
+  const onThreadFolder = defaultChoice !== undefined && chosen?.id === defaultChoice.id;
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-sidebar text-sidebar-foreground" aria-label="File Explorer">
@@ -226,7 +227,8 @@ export function FileExplorerPanelTab() {
         />
         {showThreadFolderButton ? (
           <button type="button" aria-label="Back to this thread's workspace" title="Back to this thread's workspace"
-            className="flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-state-hover"
+            disabled={onThreadFolder}
+            className="flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-state-hover disabled:opacity-40 disabled:hover:bg-transparent"
             onClick={backToThreadFolder}>
             <Icon name="FolderGit" className="size-3" />
           </button>
