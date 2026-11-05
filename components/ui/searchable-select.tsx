@@ -16,6 +16,8 @@ const OVERLAY_LAYER_CLASS = "z-[70]";
 export interface SelectOption {
   value: string;
   label: string;
+  /** When set, the row shows an X that calls this instead of selecting the row. */
+  onRemove?: () => void;
 }
 
 export interface SearchableSelectProps {
@@ -213,32 +215,47 @@ export function SearchableSelect({
                 // Long labels (project · path) truncate; the native tooltip
                 // keeps the full text readable on hover.
                 return (
-                  <button
+                  <div
                     key={option.value}
-                    type="button"
-                    data-index={index}
-                    role="option"
-                    aria-selected={isSelected}
-                    title={option.label}
-                    onClick={() => selectOption(option)}
-                    onMouseEnter={() => setActiveIndex(index)}
                     className={cn(
-                      "flex w-full min-w-0 cursor-pointer items-center gap-1 px-2 py-1 text-left text-[11px] text-sidebar-foreground",
+                      "flex w-full min-w-0 items-center text-sidebar-foreground",
                       CONTROL_HOVER_TRANSITION,
                       "hover:bg-state-hover hover:text-foreground",
                       isActive && "bg-state-active",
                     )}
+                    onMouseEnter={() => setActiveIndex(index)}
                   >
-                    <span className="min-w-0 flex-1 truncate">
-                      {option.label}
-                    </span>
-                    {isSelected ? (
-                      <Icon
-                        name="Check"
-                        className="size-3 shrink-0 text-muted-foreground"
-                      />
+                    <button
+                      type="button"
+                      data-index={index}
+                      role="option"
+                      aria-selected={isSelected}
+                      title={option.label}
+                      onClick={() => selectOption(option)}
+                      className="flex min-w-0 flex-1 cursor-pointer items-center gap-1 px-2 py-1 text-left text-[11px]"
+                    >
+                      <span className="min-w-0 flex-1 truncate">
+                        {option.label}
+                      </span>
+                      {isSelected ? (
+                        <Icon
+                          name="Check"
+                          className="size-3 shrink-0 text-muted-foreground"
+                        />
+                      ) : null}
+                    </button>
+                    {option.onRemove !== undefined ? (
+                      <button
+                        type="button"
+                        aria-label={`Remove ${option.label} from recent folders`}
+                        title="Remove from recent folders"
+                        onClick={option.onRemove}
+                        className="mr-1 flex size-5 shrink-0 cursor-pointer items-center justify-center rounded text-muted-foreground hover:bg-state-hover hover:text-foreground"
+                      >
+                        <Icon name="X" className="size-3" />
+                      </button>
                     ) : null}
-                  </button>
+                  </div>
                 );
               })
             )}

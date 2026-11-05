@@ -9,9 +9,15 @@ import { cn } from "@/lib/utils";
 import { registerSurfaceNavigation } from "@/lib/surface-navigation";
 import { getFindInFolder, subscribeFindInFolder } from "@/lib/find-in-folder";
 import type { RootChoice } from "../shared";
+import {
+  parsePinnedFolders,
+  readThreadState,
+  threadStateKey,
+  updateThreadState,
+  withFolder,
+  withoutFolder,
+} from "@/lib/thread-state";
 import type { rpcContract } from "../contract";
-
-const ROOT_STORAGE_KEY = "bb-plugin-file-explorer:pinned-root";
 
 /** The two views the rail carries: names, or the text inside them. */
 type ExplorerTab = "files" | "search";
@@ -33,47 +39,6 @@ function writeStoredTab(tab: ExplorerTab): void {
   }
 }
 
-function readPinnedRoot(): string | null {
-  try {
-    const value = localStorage.getItem(ROOT_STORAGE_KEY);
-    return value !== null && /^(?:thread|source|personal|folder):[\w-]{1,128}$/u.test(value)
-      ? value
-      : null;
-  } catch {
-    return null;
-  }
-}
-
-function writePinnedRoot(id: string): void {
-  try {
-    localStorage.setItem(ROOT_STORAGE_KEY, id);
-  } catch {
-    // The choice still lasts for this window when storage is unavailable.
-  }
-}
-
-const FOLDERS_STORAGE_KEY = "bb-plugin-file-explorer:opened-folders";
-const MAX_OPENED_FOLDERS = 10;
-
-function readOpenedFolders(): string[] {
-  try {
-    const parsed: unknown = JSON.parse(localStorage.getItem(FOLDERS_STORAGE_KEY) ?? "[]");
-    return Array.isArray(parsed)
-      ? parsed.filter((item): item is string => typeof item === "string").slice(0, MAX_OPENED_FOLDERS)
-      : [];
-  } catch {
-    return [];
-  }
-}
-
-function writeOpenedFolders(paths: string[]): void {
-  try {
-    localStorage.setItem(FOLDERS_STORAGE_KEY, JSON.stringify(paths));
-  } catch {
-    // The folders still last for this window when storage is unavailable.
-  }
-}
-
 /** Body of the File Explorer tab in BB's right panel. */
 export function FileExplorerPanelTab() {
   const rpc = useRpc<typeof rpcContract>();
@@ -84,12 +49,28 @@ export function FileExplorerPanelTab() {
   // The panel is the only surface that opens previews now, so it registers
   // the navigator the file rows look up by thread.
   useEffect(() => registerSurfaceNavigation(threadId, navigate), [threadId, navigate]);
-  const [selectedId, setSelectedId] = useState<string | null>(readPinnedRoot);
+  // Each thread keeps its own folder and recent folders. The state is read
+  // again whenever the route moves to another thread.
+  const stateKey = threadStateKey(threadId, projectId);
+  const stateKeyRef = useRef(stateKey);
+  stateKeyRef.current = stateKey;
+  const [loadedKey, setLoadedKey] = useState(stateKey);
+  const [selectedId, setSelectedId] = useState<string | null>(() => readThreadState(stateKey).selectedId);
+  const [folders, setFolders] = useState<string[]>(() => readThreadState(stateKey).folders);
+  if (loadedKey !== stateKey) {
+    const stored = readThreadState(stateKey);
+    setLoadedKey(stateKey);
+    setSelectedId(stored.selectedId);
+    setFolders(stored.folders);
+  }
+
   const [choices, setChoices] = useState<RootChoice[]>([]);
+  const [openedChoices, setOpenedChoices] = useState<RootChoice[]>([]);
+  const [pinnedChoices, setPinnedChoices] = useState<RootChoice[]>([]);
   const [loadingRoots, setLoadingRoots] = useState(true);
+  const [loadingFolders, setLoadingFolders] = useState(true);
   const [rootError, setRootError] = useState<string | null>(null);
   const [refreshCount, setRefreshCount] = useState(0);
-  const [openedChoices, setOpenedChoices] = useState<RootChoice[]>([]);
   const [folderInput, setFolderInput] = useState("");
   const [folderError, setFolderError] = useState<string | null>(null);
   const [tab, setTab] = useState<ExplorerTab>(readStoredTab);
@@ -103,81 +84,12 @@ export function FileExplorerPanelTab() {
     writeStoredTab("search");
   }, [findInFolder]);
 
-  // Folders opened by path are remembered by path; the server mints fresh
-  // root ids for them on each load, and a folder that no longer exists drops out.
-  useEffect(() => {
-    let cancelled = false;
-    void Promise.all(readOpenedFolders().map((path) => rpc.call("openFolder", { path })))
-      .then((results) => {
-        if (cancelled) return;
-        setOpenedChoices(results.flatMap((result) => (result.ok ? [result.choice] : [])));
-      })
-      .catch(() => {});
-    return () => { cancelled = true; };
-  }, [rpc, refreshCount]);
-
-  const openFolderByPath = (path: string) => {
-    setFolderError(null);
-    void rpc.call("openFolder", { path })
-      .then((result) => {
-        if (!result.ok) {
-          setFolderError(result.message);
-          return;
-        }
-        const { choice } = result;
-        setOpenedChoices((current) => [
-          choice,
-          ...current.filter((existing) => existing.id !== choice.id),
-        ].slice(0, MAX_OPENED_FOLDERS));
-        writeOpenedFolders([
-          choice.workspace.rootPath,
-          ...readOpenedFolders().filter((existing) => existing !== choice.workspace.rootPath),
-        ].slice(0, MAX_OPENED_FOLDERS));
-        setSelectedId(choice.id);
-        writePinnedRoot(choice.id);
-        setFolderInput("");
-      })
-      .catch((cause) => setFolderError(cause instanceof Error ? cause.message : String(cause)));
-  };
-
-  const pinnedThreadId = selectedId?.startsWith("thread:") ? selectedId.slice(7) : null;
-  /** The thread the selector last followed, so a manual choice survives re-renders. */
-  const lastFollowedThread = useRef<string | null | undefined>(undefined);
   useEffect(() => {
     let cancelled = false;
     setLoadingRoots(true);
-    void rpc.call("listRootChoices", { currentThreadId: threadId, pinnedThreadId })
+    void rpc.call("listRootChoices", { currentThreadId: threadId, pinnedThreadId: null })
       .then(({ choices: next }) => {
-        if (cancelled) return;
-        setChoices(next);
-        // Opening a thread shows that thread's own project: the selector
-        // follows the route. The pinned choice is what New Thread keeps —
-        // there is no thread there to follow.
-        if (threadId !== null && lastFollowedThread.current !== threadId) {
-          lastFollowedThread.current = threadId;
-          const follow = next.find((choice) =>
-              choice.id.startsWith("source:") && choice.projectId === projectId)
-            ?? next.find((choice) => choice.id === `personal:${projectId}`)
-            ?? next.find((choice) => choice.id === `thread:${threadId}`)
-            ?? next.find((choice) => choice.projectId !== null && choice.projectId === projectId);
-          if (follow !== undefined) {
-            if (follow.id !== selectedId) {
-              setSelectedId(follow.id);
-              writePinnedRoot(follow.id);
-            }
-            return;
-          }
-        }
-        if (selectedId === null) {
-          const preferred = next.find((choice) => choice.id === `personal:${projectId}`)
-            ?? next.find((choice) => choice.id === `thread:${threadId}`)
-            ?? next.find((choice) => choice.projectId !== null && choice.projectId === projectId)
-            ?? next[0];
-          if (preferred !== undefined) {
-            setSelectedId(preferred.id);
-            writePinnedRoot(preferred.id);
-          }
-        }
+        if (!cancelled) setChoices(next);
       })
       .catch((cause) => {
         if (!cancelled) setRootError(cause instanceof Error ? cause.message : String(cause));
@@ -186,26 +98,123 @@ export function FileExplorerPanelTab() {
         if (!cancelled) setLoadingRoots(false);
       });
     return () => { cancelled = true; };
-  }, [rpc, threadId, projectId, pinnedThreadId, selectedId, refreshCount, values?.treeRoot]);
+  }, [rpc, threadId, projectId, refreshCount, values?.treeRoot]);
 
-  const allChoices = [...choices, ...openedChoices];
-  const chosen = allChoices.find((choice) => choice.id === selectedId);
+  // Folders are kept by path; the server mints fresh root ids for them on each
+  // load. A folder that no longer exists is removed from this thread's list.
+  const pinnedPaths = parsePinnedFolders(values?.pinnedFolders);
+  const pinnedKey = pinnedPaths.join("\n");
+  useEffect(() => {
+    let cancelled = false;
+    void Promise.all(pinnedPaths.map((path) => rpc.call("openFolder", { path })))
+      .then((results) => {
+        if (cancelled) return;
+        setPinnedChoices(results.flatMap((result) =>
+          result.ok
+            ? [{ ...result.choice, label: `Pinned · ${result.choice.workspace.rootPath}` }]
+            : []));
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rpc, pinnedKey, refreshCount]);
+
+  const foldersKey = folders.join("\n");
+  useEffect(() => {
+    let cancelled = false;
+    const keyAtStart = stateKey;
+    setLoadingFolders(true);
+    void Promise.all(folders.map((path) => rpc.call("openFolder", { path })))
+      .then((results) => {
+        if (cancelled) return;
+        setOpenedChoices(results.flatMap((result) => (result.ok ? [result.choice] : [])));
+        const missing = folders.filter((_, index) => !results[index]?.ok);
+        if (missing.length > 0) {
+          const kept = folders.filter((path) => !missing.includes(path));
+          updateThreadState(keyAtStart, { folders: kept });
+          setFolders(kept);
+        }
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (!cancelled) setLoadingFolders(false);
+      });
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rpc, foldersKey, refreshCount]);
+
+  const chooseRoot = (id: string) => {
+    setSelectedId(id);
+    updateThreadState(stateKey, { selectedId: id });
+  };
+
+  const openFolderByPath = (path: string) => {
+    setFolderError(null);
+    const keyAtCall = stateKey;
+    void rpc.call("openFolder", { path })
+      .then((result) => {
+        if (!result.ok) {
+          if (stateKeyRef.current === keyAtCall) setFolderError(result.message);
+          return;
+        }
+        const { choice } = result;
+        const rootPath = choice.workspace.rootPath;
+        const next = updateThreadState(keyAtCall, {
+          selectedId: choice.id,
+          folders: withFolder(readThreadState(keyAtCall).folders, rootPath),
+        });
+        if (stateKeyRef.current !== keyAtCall) return;
+        setFolders(next.folders);
+        setSelectedId(choice.id);
+        setFolderInput("");
+      })
+      .catch((cause) => {
+        if (stateKeyRef.current === keyAtCall) {
+          setFolderError(cause instanceof Error ? cause.message : String(cause));
+        }
+      });
+  };
+
+  const removeFolder = (choice: RootChoice) => {
+    const next = updateThreadState(stateKey, {
+      folders: withoutFolder(readThreadState(stateKey).folders, choice.workspace.rootPath),
+      ...(selectedId === choice.id ? { selectedId: null } : {}),
+    });
+    setFolders(next.folders);
+    setOpenedChoices((current) => current.filter((existing) => existing.id !== choice.id));
+    if (selectedId === choice.id) setSelectedId(null);
+  };
+
+  // Pinned folders win over the same path in the recent list.
+  const pinnedIds = new Set(pinnedChoices.map((choice) => choice.id));
+  const recentChoices = openedChoices.filter((choice) => !pinnedIds.has(choice.id));
+  const allChoices = [...choices, ...pinnedChoices, ...recentChoices];
+
+  // With no stored choice, or one that is gone, a thread opens in its own
+  // workspace; the New Thread page uses its project's source.
+  const defaultChoice = threadId !== null
+    ? allChoices.find((choice) => choice.id === `thread:${threadId}`)
+    : allChoices.find((choice) => choice.id === `personal:${projectId}`)
+      ?? allChoices.find((choice) => choice.id.startsWith("source:") && choice.projectId === projectId)
+      ?? allChoices[0];
+  const settled = !loadingRoots && !loadingFolders;
+  const stored = selectedId === null ? undefined : allChoices.find((choice) => choice.id === selectedId);
+  const chosen = stored ?? (selectedId !== null && !settled ? undefined : defaultChoice);
+
   return (
     <div className="flex h-full min-h-0 flex-col bg-sidebar text-sidebar-foreground" aria-label="File Explorer">
       <div className="flex shrink-0 items-center gap-1 border-b border-sidebar-border px-1.5 py-1">
         <SearchableSelect
           ariaLabel="File Explorer folder"
-          triggerTitle="Pinned folder — switching threads does not change this tree"
-          value={selectedId}
-          onValueChange={(id) => {
-            setSelectedId(id);
-            writePinnedRoot(id);
-          }}
+          triggerTitle="Folder shown for this thread — each thread keeps its own"
+          value={chosen?.id ?? null}
+          onValueChange={chooseRoot}
           placeholder="Choose a folder"
           searchPlaceholder="Search projects…"
           options={allChoices.map((choice) => ({
             value: choice.id,
             label: choice.label,
+            onRemove: recentChoices.includes(choice) ? () => removeFolder(choice) : undefined,
           }))}
           triggerClassName="bg-sidebar"
         />

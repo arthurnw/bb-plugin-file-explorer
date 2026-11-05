@@ -22,7 +22,8 @@ Or search **File Explorer** in BB Community.
 - Files show Seti-style type icons (markdown, JSON, git, `.env`, README, TypeScript, …), as in Cursor. Folders keep only the chevron.
 - In a thread or on the New Thread page, click a file to open BB's default preview.
 - Right-click to add the absolute path to an open chat draft, create a file or folder (type a name when prompted), rename or delete a file or folder, copy a relative or absolute path, or reveal it in Explorer. When several drafts are open, choose the target in the file menu. Right-click the root name at the top of the tree to create the file there. A newly created file opens in the external editor so you can paste into it. Rename and delete ask for confirmation; deleting a folder removes it recursively.
-- Type any absolute or `~/` path into the "Open folder path" box and press Enter to open a folder outside your projects, such as `~/.local/share`. Opened folders are added to the folder selector and remembered across restarts (last 10).
+- Each thread keeps its own folder. A thread opens in its own workspace; picking another folder there is remembered for that thread only and survives switching to other threads and back.
+- Type any absolute or `~/` path into the "Open folder path" box and press Enter to open a folder outside your projects, such as `~/.local/share`. Opened folders are added to that thread's folder selector (last 10 per thread) and remembered across restarts. Click the X next to one in the selector to remove it.
 - Click the refresh button (↻) next to the folder selector to reload the root choices and current tree contents.
 - Paths written in chat can jump the tree to that file, and so do bare file names like `AGENTS-base.md`. Search roots (default `~/Documents`) cover folders outside the current checkout.
 - Git-ignored files appear dimmed in the tree with a tooltip noting they are ignored.
@@ -40,6 +41,7 @@ bb plugin config file-explorer
 - **Show hidden files and folders** — reveal `.git`, `node_modules`, `.claude`, and other build/ignored folders
 - **Root folder for personal threads** — set `~/Documents` to offer it as a pinned folder. Project sources and thread workspaces are also available in the folder selector. Project threads always show their project workspace.
 - **Files or folders to hide by default** — extra folder names to hide in the tree and search (one per line); extends the built-in skip list (`.git`, `node_modules`, etc.)
+- **Pinned folders** — extra folders (one per line, absolute or `~/`) offered in every thread's folder selector, such as `~/.config`
 - **Folders to search for paths mentioned in chat** — search roots for name-based resolution (default `~/Documents`)
 
 ## Develop

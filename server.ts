@@ -99,6 +99,14 @@ export default async function plugin(bb: BbPluginApi): Promise<void> {
         "Absolute path or ~/ path used only for BB personal threads. Project threads always show their project workspace.",
       default: "",
     },
+    pinnedFolders: {
+      type: "string",
+      label: "Pinned folders (one per line)",
+      description:
+        "Absolute or ~/ paths offered in every thread's folder selector, such as ~/.config or ~/.local/share.",
+      default: "",
+      experimental_multiline: true,
+    },
     searchRoots: {
       type: "string",
       label: "Folders to search for paths mentioned in chat (one per line)",
